@@ -32,7 +32,7 @@ class MinimalDbSeeder:
         init_db()
         db: Session = SessionLocal()
 
-        start_time = datetime.datetime.utcnow()
+        start_time = datetime.datetime.now().astimezone()
         print(f"{start_time}: beginning minimal db seed, might take a few minutes…")
 
         try:

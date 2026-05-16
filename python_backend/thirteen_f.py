@@ -15,7 +15,7 @@ def import_filings(db: Session, filing_year: int, filing_quarter: int):
     Downloads the SEC master index for a quarter and saves the metadata 
     of all found 13F filings into the 'thirteen_f' table.
     """
-    now = datetime.datetime.utcnow()
+    now = datetime.datetime.now().astimezone()
     rows = client.thirteen_f_filings(filing_year=filing_year, filing_quarter=filing_quarter)
 
     if not rows:
@@ -91,7 +91,7 @@ def process_filing(db: Session, filing: ThirteenF, force=False):
         if info_xml:
             parse_info_table(db, filing, info_xml)
         
-        filing.xml_data_fetched_at = datetime.datetime.utcnow()
+        filing.xml_data_fetched_at = datetime.datetime.now().astimezone()
         db.commit()
     except Exception as e:
         error_type = type(e).__name__
@@ -202,7 +202,7 @@ def parse_info_table(db: Session, filing: ThirteenF, xml_content: str):
     db.query(Holding).filter(Holding.thirteen_f_id == filing.id).delete()
     db.query(AggregateHolding).filter(AggregateHolding.thirteen_f_id == filing.id).delete()
 
-    now = datetime.datetime.utcnow()
+    now = datetime.datetime.now().astimezone()
     holdings_to_insert = []
 
     for row in parsed_holdings:

@@ -41,6 +41,7 @@ def import_all(period=None, verbose=False):
                      If None, imports everything from 2014 to present.
         verbose (bool): If True, prints detailed request logs to the console.
     """
+    start_time = datetime.datetime.now().astimezone()
     sec_client.verbose = verbose
     
     # Initialize the database (creates tables if they don't exist)
@@ -48,7 +49,7 @@ def import_all(period=None, verbose=False):
     db: Session = SessionLocal()
     
     # Determine current date to avoid requesting future quarters
-    now = datetime.datetime.utcnow()
+    now = datetime.datetime.now().astimezone()
     current_year = now.year
     current_quarter = (now.month - 1) // 3 + 1
     
@@ -107,18 +108,22 @@ def import_all(period=None, verbose=False):
                 
                 # Step 1: Download the SEC Master Index for this quarter.
                 # This file contains the names and CIKs of every manager who filed a 13F.
-                log(f"{datetime.datetime.utcnow()}: Importing 13Fs for {year} Q{quarter}...")
+                log(f"{datetime.datetime.now().astimezone()}: Importing 13Fs for {year} Q{quarter}...")
                 import_filings(db, filing_year=year, filing_quarter=quarter)
                 
                 # Step 2: Process the holdings for every manager found in the index.
                 # This downloads the actual XML data for each filing (Primary Doc and Info Table).
-                log(f"{datetime.datetime.utcnow()}: Processing holdings for {year} Q{quarter} (this may take a while)...")
+                log(f"{datetime.datetime.now().astimezone()}: Processing holdings for {year} Q{quarter} (this may take a while)...")
                 process_unprocessed_filings(db, filing_year=year, filing_quarter=quarter)
                 
-                log(f"{datetime.datetime.utcnow()}: Finished {year} Q{quarter}")
+                log(f"{datetime.datetime.now().astimezone()}: Finished {year} Q{quarter}")
                 
-        log(f"{datetime.datetime.utcnow()}: Import completed successfully.")
+        log(f"{datetime.datetime.now().astimezone()}: Import completed successfully.")
         log(f"Total SEC requests made: {sec_client.request_count}")
+        
+        end_time = datetime.datetime.now().astimezone()
+        duration = end_time - start_time
+        log(f"Total time: {duration}")
         if os.path.exists(CHECKPOINT_FILE):
             os.remove(CHECKPOINT_FILE)
     except Exception as e:
