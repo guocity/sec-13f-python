@@ -19,7 +19,10 @@ def import_filings(db: Session, filing_year: int, filing_quarter: int):
     rows = client.thirteen_f_filings(filing_year=filing_year, filing_quarter=filing_quarter)
 
     if not rows:
+        tqdm.write(f"No 13F records found in master index for {filing_year} Q{filing_quarter}")
         return
+    
+    tqdm.write(f"Found {len(rows)} 13F records in master index for {filing_year} Q{filing_quarter}")
 
     for row in tqdm(rows, desc=f"Importing {filing_year} Q{filing_quarter} Index", unit="filing"):
         existing = db.query(ThirteenF).filter(ThirteenF.external_id == row["external_id"]).first()
