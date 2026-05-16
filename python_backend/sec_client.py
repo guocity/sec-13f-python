@@ -6,6 +6,10 @@ import requests
 from bs4 import BeautifulSoup
 from lxml import etree
 import tempfile
+try:
+    from tqdm import tqdm
+except ImportError:
+    tqdm = None
 
 
 class RateLimited(Exception):
@@ -41,14 +45,41 @@ class SecClient:
     def get(self, url, **kwargs):
         self.request_count += 1
         if self.verbose:
-            print(f"SEC Request: {url}")
-
+            msg = f"SEC Request: {url}"
+            if tqdm:
+                tqdm.write(msg)
+            else:
+                print(msg)
+        
         headers = kwargs.pop('headers', self.request_headers())
         response = requests.get(url, headers=headers, **kwargs)
         if response.status_code == 429:
             raise RateLimited()
         response.raise_for_status()
         return response
+
+    def get_with_progress(self, url, desc="Downloading", **kwargs):
+        self.request_count += 1
+        headers = kwargs.pop('headers', self.request_headers())
+        response = requests.get(url, headers=headers, stream=True, **kwargs)
+        if response.status_code == 429:
+            raise RateLimited()
+        response.raise_for_status()
+        
+        total_size = int(response.headers.get('content-length', 0))
+        block_size = 1024
+        
+        content = []
+        if tqdm and total_size > 0:
+            with tqdm(total=total_size, unit='iB', unit_scale=True, desc=desc) as pbar:
+                for data in response.iter_content(block_size):
+                    pbar.update(len(data))
+                    content.append(data)
+        else:
+            for data in response.iter_content(block_size):
+                content.append(data)
+        
+        return b"".join(content).decode('utf-8', errors='replace')
 
     def _parse_float(self, value):
         if value is None:
@@ -68,13 +99,14 @@ class SecClient:
         """
         url = f"{self.BASE_URL}/Archives/edgar/full-index/{filing_year}/QTR{filing_quarter}/master.idx"
 
-        response = self.get(url)
-        content = response.text.split("\n")
+        content_str = self.get_with_progress(url, desc=f"Downloading {filing_year} Q{filing_quarter} Index")
+        content = content_str.split("\n")
 
         thirteen_fs = []
         col_names = None
 
-        for raw_line in content:
+        iterable = tqdm(content, desc=f"Parsing {filing_year} Q{filing_quarter} Index", unit="line") if tqdm else content
+        for raw_line in iterable:
             line = [x.strip() for x in raw_line.strip().split("|")]
 
             if len(line) != len(self.EXPECTED_COL_NAMES):

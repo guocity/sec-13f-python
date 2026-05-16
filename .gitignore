@@ -38,5 +38,5 @@ yarn-debug.log*
 
 .db
 *.db
-
+.DS_Store
 venv

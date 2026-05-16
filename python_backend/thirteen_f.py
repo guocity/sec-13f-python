@@ -3,6 +3,7 @@ from sqlalchemy.orm import Session
 from models import ThirteenF, Holding, AggregateHolding
 from sec_client import SecClient, XmlUrlsNotFound
 from sqlalchemy import func
+from tqdm import tqdm
 
 client = SecClient()
 
@@ -19,7 +20,7 @@ def import_filings(db: Session, filing_year: int, filing_quarter: int):
     if not rows:
         return
 
-    for row in rows:
+    for row in tqdm(rows, desc=f"Importing {filing_year} Q{filing_quarter} Index", unit="filing"):
         existing = db.query(ThirteenF).filter(ThirteenF.external_id == row["external_id"]).first()
         if not existing:
             filing = ThirteenF(
@@ -57,7 +58,9 @@ def process_unprocessed_filings(db: Session, filing_year=None, filing_quarter=No
             query = query.filter(ThirteenF.cik == ciks)
 
     unprocessed = query.all()
-    for filing in unprocessed:
+    
+    desc = f"Processing {filing_year} Q{filing_quarter}" if filing_year and filing_quarter else "Processing Holdings"
+    for filing in tqdm(unprocessed, desc=desc, unit="filing"):
         process_filing(db, filing)
 
 def process_filing(db: Session, filing: ThirteenF, force=False):
@@ -70,38 +73,47 @@ def process_filing(db: Session, filing: ThirteenF, force=False):
     if filing.xml_data_fetched_at is not None and not force:
         return
 
-    cache_xml_data(db, filing)
-    cache_attributes_from_primary_doc(db, filing)
-    create_holdings(db, filing)
+    primary_xml, info_xml = fetch_xml_content(db, filing)
+    
+    if primary_xml:
+        parse_primary_doc(db, filing, primary_xml)
+    
+    if info_xml:
+        parse_info_table(db, filing, info_xml)
+    
+    filing.xml_data_fetched_at = datetime.datetime.utcnow()
+    db.commit()
 
-def cache_xml_data(db: Session, filing: ThirteenF):
+def fetch_xml_content(db: Session, filing: ThirteenF):
     try:
         xml_urls = client.xml_urls(filing.directory_url)
 
         primary_doc_url = client.primary_doc_url(xml_urls)
         filing.primary_doc_url = primary_doc_url
+        primary_xml = None
         if primary_doc_url:
-            filing.primary_doc_xml = client.get(primary_doc_url).content.decode('utf-8', errors='replace')
+            primary_xml = client.get(primary_doc_url).content.decode('utf-8', errors='replace')
 
         info_table_url = client.info_table_url(xml_urls)
         filing.info_table_url = info_table_url
+        info_xml = None
         if info_table_url:
-            filing.info_table_xml = client.get(info_table_url).content.decode('utf-8', errors='replace')
+            info_xml = client.get(info_table_url).content.decode('utf-8', errors='replace')
 
-        filing.xml_data_fetched_at = datetime.datetime.utcnow()
-        db.commit()
+        return primary_xml, info_xml
     except XmlUrlsNotFound:
         if expected_to_have_xml_urls(filing):
             raise
+        return None, None
 
 def expected_to_have_xml_urls(filing: ThirteenF):
     return filing.filing_year >= FIRST_YEAR_EXPECTED_TO_HAVE_XML_URLS
 
-def cache_attributes_from_primary_doc(db: Session, filing: ThirteenF):
-    if filing.xml_data_fetched_at is None or not filing.primary_doc_xml:
+def parse_primary_doc(db: Session, filing: ThirteenF, xml_content: str):
+    if not xml_content:
         return
 
-    parsed = client.parse_primary_doc_xml(filing.primary_doc_xml)
+    parsed = client.parse_primary_doc_xml(xml_content)
 
     filing.report_date = parsed.get("report_date")
     if filing.report_date:
@@ -165,11 +177,11 @@ def mark_previous_filings_as_restated(db: Session, filing: ThirteenF):
 def has_no_info_table(filing: ThirteenF):
     return filing.xml_data_fetched_at is not None and not filing.info_table_url
 
-def create_holdings(db: Session, filing: ThirteenF):
-    if filing.xml_data_fetched_at is None or has_no_info_table(filing) or not filing.info_table_xml:
+def parse_info_table(db: Session, filing: ThirteenF, xml_content: str):
+    if not xml_content:
         return
 
-    parsed_holdings = client.parse_info_table_xml(filing.info_table_xml)
+    parsed_holdings = client.parse_info_table_xml(xml_content)
 
     # Delete existing holdings
     db.query(Holding).filter(Holding.thirteen_f_id == filing.id).delete()

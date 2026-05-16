@@ -4,6 +4,16 @@ import re
 from sqlalchemy.orm import Session
 from models import SessionLocal, init_db
 from thirteen_f import import_filings, process_unprocessed_filings, client as sec_client
+try:
+    from tqdm import tqdm
+except ImportError:
+    tqdm = None
+
+def log(msg):
+    if tqdm:
+        tqdm.write(msg)
+    else:
+        print(msg)
 
 def import_all(period=None, verbose=False):
     """
@@ -48,7 +58,7 @@ def import_all(period=None, verbose=False):
             start_q = 1
             end_q = 4
         else:
-            print(f"Invalid period format: {period}. Use YYYY (e.g. 2026) or YYYYQN (e.g. 2026Q1)")
+            log(f"Invalid period format: {period}. Use YYYY (e.g. 2026) or YYYYQN (e.g. 2026Q1)")
             return
 
     try:
@@ -70,20 +80,20 @@ def import_all(period=None, verbose=False):
                 
                 # Step 1: Download the SEC Master Index for this quarter.
                 # This file contains the names and CIKs of every manager who filed a 13F.
-                print(f"{datetime.datetime.utcnow()}: Importing 13Fs for {year} Q{quarter}...")
+                log(f"{datetime.datetime.utcnow()}: Importing 13Fs for {year} Q{quarter}...")
                 import_filings(db, filing_year=year, filing_quarter=quarter)
                 
                 # Step 2: Process the holdings for every manager found in the index.
                 # This downloads the actual XML data for each filing (Primary Doc and Info Table).
-                print(f"{datetime.datetime.utcnow()}: Processing holdings for {year} Q{quarter} (this may take a while)...")
+                log(f"{datetime.datetime.utcnow()}: Processing holdings for {year} Q{quarter} (this may take a while)...")
                 process_unprocessed_filings(db, filing_year=year, filing_quarter=quarter)
                 
-                print(f"{datetime.datetime.utcnow()}: Finished {year} Q{quarter}")
+                log(f"{datetime.datetime.utcnow()}: Finished {year} Q{quarter}")
                 
-        print(f"{datetime.datetime.utcnow()}: Import completed successfully.")
-        print(f"Total SEC requests made: {sec_client.request_count}")
+        log(f"{datetime.datetime.utcnow()}: Import completed successfully.")
+        log(f"Total SEC requests made: {sec_client.request_count}")
     except Exception as e:
-        print(f"Error during import: {e}")
+        log(f"Error during import: {e}")
     finally:
         db.close()
 

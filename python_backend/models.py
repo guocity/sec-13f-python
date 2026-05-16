@@ -117,8 +117,6 @@ class ThirteenF(Base):
     other_managers = Column(JSON, nullable=False, default=list)
     primary_doc_url = Column(Text)
     info_table_url = Column(Text)
-    primary_doc_xml = Column(Text)
-    info_table_xml = Column(Text)
     xml_data_fetched_at = Column(DateTime)
     created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
     updated_at = Column(DateTime, nullable=False, default=datetime.utcnow, onupdate=datetime.utcnow)
