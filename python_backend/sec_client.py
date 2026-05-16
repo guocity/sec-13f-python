@@ -1,6 +1,7 @@
 import os
 import re
 import datetime
+import time
 from urllib.parse import urljoin
 import requests
 from bs4 import BeautifulSoup
@@ -44,8 +45,34 @@ class SecClient:
     def padded_cik(self, cik_val):
         return str(cik_val).strip().rjust(10, "0")
 
+    def _request(self, method, url, max_retries=10, **kwargs):
+        headers = kwargs.pop('headers', self.request_headers())
+        
+        for attempt in range(max_retries):
+            self.request_count += 1
+            
+            try:
+                response = requests.request(method, url, headers=headers, **kwargs)
+                if response.status_code == 429:
+                    wait_time = (attempt + 1) * 10
+                    msg = f"Rate limited (429) for {url}. Waiting {wait_time}s (attempt {attempt+1}/{max_retries})..."
+                    if tqdm:
+                        tqdm.write(msg)
+                    else:
+                        print(msg)
+                    time.sleep(wait_time)
+                    continue
+                
+                response.raise_for_status()
+                return response
+            except requests.exceptions.RequestException as e:
+                if attempt == max_retries - 1:
+                    raise
+                time.sleep(2)
+        
+        raise RateLimited()
+
     def get(self, url, **kwargs):
-        self.request_count += 1
         if self.verbose:
             msg = f"SEC Request: {url}"
             if tqdm:
@@ -53,27 +80,17 @@ class SecClient:
             else:
                 print(msg)
         
-        headers = kwargs.pop('headers', self.request_headers())
-        response = requests.get(url, headers=headers, **kwargs)
-        if response.status_code == 429:
-            raise RateLimited()
-        response.raise_for_status()
-        return response
+        return self._request("GET", url, **kwargs)
 
     def get_with_progress(self, url, desc="Downloading", **kwargs):
-        self.request_count += 1
-        headers = kwargs.pop('headers', self.request_headers())
-        response = requests.get(url, headers=headers, stream=True, **kwargs)
-        if response.status_code == 429:
-            raise RateLimited()
-        response.raise_for_status()
+        response = self._request("GET", url, stream=True, **kwargs)
         
         total_size = int(response.headers.get('content-length', 0))
         block_size = 1024
         
         content = []
         if tqdm and total_size > 0:
-            with tqdm(total=total_size, unit='iB', unit_scale=True, desc=desc) as pbar:
+            with tqdm(total=total_size, unit='iB', unit_scale=True, desc=desc, leave=False) as pbar:
                 for data in response.iter_content(block_size):
                     pbar.update(len(data))
                     content.append(data)
