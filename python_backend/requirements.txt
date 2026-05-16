@@ -1,0 +1,9 @@
+requests
+beautifulsoup4
+lxml
+sqlalchemy
+psycopg2-binary
+python-dotenv
+pydantic
+python-dateutil
+tqdm
