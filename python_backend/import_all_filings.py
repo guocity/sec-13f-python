@@ -4,7 +4,7 @@ import re
 import json
 import os
 from sqlalchemy.orm import Session
-from models import SessionLocal, init_db
+from models import SessionLocal, init_db, ThirteenF, Holding
 from thirteen_f import import_filings, process_unprocessed_filings, client as sec_client
 try:
     from tqdm import tqdm
@@ -47,6 +47,11 @@ def import_all(period=None, verbose=False):
     # Initialize the database (creates tables if they don't exist)
     init_db()
     db: Session = SessionLocal()
+    
+    # Get initial record counts
+    initial_filings_count = db.query(ThirteenF).count()
+    initial_holdings_count = db.query(Holding).count()
+    
     
     # Determine current date to avoid requesting future quarters
     now = datetime.datetime.now().astimezone()
@@ -118,8 +123,14 @@ def import_all(period=None, verbose=False):
                 
                 log(f"{datetime.datetime.now().astimezone()}: Finished {year} Q{quarter}")
                 
+        # Get final record counts
+        final_filings_count = db.query(ThirteenF).count()
+        final_holdings_count = db.query(Holding).count()
+        
         log(f"{datetime.datetime.now().astimezone()}: Import completed successfully.")
         log(f"Total SEC requests made: {sec_client.request_count}")
+        log(f"Total filings in database: {final_filings_count} (+{final_filings_count - initial_filings_count} inserted)")
+        log(f"Total holdings in database: {final_holdings_count} (+{final_holdings_count - initial_holdings_count} inserted)")
         
         end_time = datetime.datetime.now().astimezone()
         duration = end_time - start_time
