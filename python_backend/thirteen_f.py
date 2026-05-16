@@ -4,6 +4,7 @@ from models import ThirteenF, Holding, AggregateHolding
 from sec_client import SecClient, XmlUrlsNotFound
 from sqlalchemy import func
 from tqdm import tqdm
+import requests
 
 client = SecClient()
 
@@ -57,10 +58,18 @@ def process_unprocessed_filings(db: Session, filing_year=None, filing_quarter=No
         else:
             query = query.filter(ThirteenF.cik == ciks)
 
+    # For better progress reporting, count total and already processed filings
+    total_q = db.query(ThirteenF)
+    if filing_year: total_q = total_q.filter(ThirteenF.filing_year == filing_year)
+    if filing_quarter: total_q = total_q.filter(ThirteenF.filing_quarter == filing_quarter)
+    total_count = total_q.count()
+    
+    processed_count = total_q.filter(ThirteenF.xml_data_fetched_at != None).count()
+
     unprocessed = query.all()
     
     desc = f"Processing {filing_year} Q{filing_quarter}" if filing_year and filing_quarter else "Processing Holdings"
-    for filing in tqdm(unprocessed, desc=desc, unit="filing"):
+    for filing in tqdm(unprocessed, desc=desc, unit="filing", total=total_count, initial=processed_count):
         process_filing(db, filing)
 
 def process_filing(db: Session, filing: ThirteenF, force=False):
@@ -73,16 +82,21 @@ def process_filing(db: Session, filing: ThirteenF, force=False):
     if filing.xml_data_fetched_at is not None and not force:
         return
 
-    primary_xml, info_xml = fetch_xml_content(db, filing)
-    
-    if primary_xml:
-        parse_primary_doc(db, filing, primary_xml)
-    
-    if info_xml:
-        parse_info_table(db, filing, info_xml)
-    
-    filing.xml_data_fetched_at = datetime.datetime.utcnow()
-    db.commit()
+    try:
+        primary_xml, info_xml = fetch_xml_content(db, filing)
+        
+        if primary_xml:
+            parse_primary_doc(db, filing, primary_xml)
+        
+        if info_xml:
+            parse_info_table(db, filing, info_xml)
+        
+        filing.xml_data_fetched_at = datetime.datetime.utcnow()
+        db.commit()
+    except Exception as e:
+        msg = f"\nSkipping filing {filing.external_id} ({filing.name}) due to error: {e}"
+        tqdm.write(msg)
+        db.rollback()
 
 def fetch_xml_content(db: Session, filing: ThirteenF):
     try:

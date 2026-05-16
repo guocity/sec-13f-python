@@ -1,6 +1,8 @@
 import datetime
 import sys
 import re
+import json
+import os
 from sqlalchemy.orm import Session
 from models import SessionLocal, init_db
 from thirteen_f import import_filings, process_unprocessed_filings, client as sec_client
@@ -14,6 +16,21 @@ def log(msg):
         tqdm.write(msg)
     else:
         print(msg)
+
+CHECKPOINT_FILE = "python_backend/checkpoint.json"
+
+def save_checkpoint(year, quarter):
+    with open(CHECKPOINT_FILE, "w") as f:
+        json.dump({"year": year, "quarter": quarter}, f)
+
+def load_checkpoint():
+    if os.path.exists(CHECKPOINT_FILE):
+        try:
+            with open(CHECKPOINT_FILE, "r") as f:
+                return json.load(f)
+        except:
+            return None
+    return None
 
 def import_all(period=None, verbose=False):
     """
@@ -61,6 +78,10 @@ def import_all(period=None, verbose=False):
             log(f"Invalid period format: {period}. Use YYYY (e.g. 2026) or YYYYQN (e.g. 2026Q1)")
             return
 
+    checkpoint = load_checkpoint() if period is None else None
+    if checkpoint:
+        log(f"Found checkpoint. Resuming from {checkpoint['year']} Q{checkpoint['quarter']}")
+
     try:
         # Loop through each year in the range
         for year in range(start_year, end_year + 1):
@@ -77,6 +98,12 @@ def import_all(period=None, verbose=False):
                 # 3. Safety check: Don't try to fetch data for the future
                 if year == current_year and quarter > current_quarter:
                     break
+
+                # 4. Resume from checkpoint if applicable
+                if checkpoint and (year < checkpoint['year'] or (year == checkpoint['year'] and quarter < checkpoint['quarter'])):
+                    continue
+
+                save_checkpoint(year, quarter)
                 
                 # Step 1: Download the SEC Master Index for this quarter.
                 # This file contains the names and CIKs of every manager who filed a 13F.
@@ -92,6 +119,8 @@ def import_all(period=None, verbose=False):
                 
         log(f"{datetime.datetime.utcnow()}: Import completed successfully.")
         log(f"Total SEC requests made: {sec_client.request_count}")
+        if os.path.exists(CHECKPOINT_FILE):
+            os.remove(CHECKPOINT_FILE)
     except Exception as e:
         log(f"Error during import: {e}")
     finally:
