@@ -15,12 +15,22 @@ class XmlUrlsNotFound(Exception):
     pass
 
 class SecClient:
+    """
+    Client for interacting with the SEC EDGAR system.
+    Handles rate limiting, index fetching, and XML parsing for 13F filings.
+    """
     BASE_URL = "https://www.sec.gov"
+    
+    # The expected headers in the SEC master.idx file
     EXPECTED_COL_NAMES = ["cik", "company_name", "form_type", "date_filed", "filename"]
+    
+    # Only care about 13F Holdings Reports (HR) and their Amendments (/A)
     THIRTEEN_F_FORM_TYPES = ["13F-HR", "13F-HR/A"]
 
-    def __init__(self):
+    def __init__(self, verbose=False):
         self.user_agent = os.environ.get("SEC_USER_AGENT", "Sample Company Name AdminContact@example.com")
+        self.verbose = verbose
+        self.request_count = 0
 
     def request_headers(self):
         return {"User-Agent": self.user_agent}
@@ -28,8 +38,13 @@ class SecClient:
     def padded_cik(self, cik_val):
         return str(cik_val).strip().rjust(10, "0")
 
-    def get(self, url):
-        response = requests.get(url, headers=self.request_headers())
+    def get(self, url, **kwargs):
+        self.request_count += 1
+        if self.verbose:
+            print(f"SEC Request: {url}")
+
+        headers = kwargs.pop('headers', self.request_headers())
+        response = requests.get(url, headers=headers, **kwargs)
         if response.status_code == 429:
             raise RateLimited()
         response.raise_for_status()
@@ -47,6 +62,10 @@ class SecClient:
             return None
 
     def thirteen_f_filings(self, filing_year, filing_quarter, delete_tmpfile=True):
+        """
+        Fetches the master index for a specific quarter and filters for 13F filings.
+        Returns a list of dictionaries containing filing metadata.
+        """
         url = f"{self.BASE_URL}/Archives/edgar/full-index/{filing_year}/QTR{filing_quarter}/master.idx"
 
         response = self.get(url)
@@ -105,9 +124,7 @@ class SecClient:
         results = []
 
         for _ in range(max_pages):
-            response = requests.get(url, params=query_params, headers=self.request_headers())
-            if response.status_code == 429:
-                raise RateLimited()
+            response = self.get(url, params=query_params)
 
             soup = BeautifulSoup(response.content, 'xml')
             entries = soup.find_all("entry")
@@ -153,6 +170,9 @@ class SecClient:
         return re.sub(r'\s+', ' ', node.text).strip()
 
     def parse_primary_doc_xml(self, xml_content):
+        """
+        Parses the 'Primary Document' XML which contains manager info (address, report date, etc).
+        """
         # Remove namespaces using regex to make parsing easier (equivalent to doc.remove_namespaces! in Ruby)
         if isinstance(xml_content, str):
             xml_content = xml_content.encode('utf-8')
@@ -206,6 +226,9 @@ class SecClient:
         }
 
     def parse_info_table_xml(self, xml_content):
+        """
+        Parses the 'Information Table' XML which contains the actual stock holdings.
+        """
         if isinstance(xml_content, str):
             xml_content = xml_content.encode('utf-8')
         xml_content_no_ns = re.sub(rb' xmlns="[^"]+"', b'', xml_content)

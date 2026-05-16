@@ -9,6 +9,10 @@ client = SecClient()
 FIRST_YEAR_EXPECTED_TO_HAVE_XML_URLS = 2014
 
 def import_filings(db: Session, filing_year: int, filing_quarter: int):
+    """
+    Downloads the SEC master index for a quarter and saves the metadata 
+    of all found 13F filings into the 'thirteen_f' table.
+    """
     now = datetime.datetime.utcnow()
     rows = client.thirteen_f_filings(filing_year=filing_year, filing_quarter=filing_quarter)
 
@@ -34,6 +38,10 @@ def import_filings(db: Session, filing_year: int, filing_quarter: int):
     db.commit()
 
 def process_unprocessed_filings(db: Session, filing_year=None, filing_quarter=None, name_starts=None, ciks=None):
+    """
+    Finds filings in the DB that haven't been processed yet and fetches their holdings data.
+    Can be filtered by year, quarter, name prefix, or CIK.
+    """
     query = db.query(ThirteenF).filter(ThirteenF.xml_data_fetched_at == None)
 
     if filing_year is not None:
@@ -53,6 +61,12 @@ def process_unprocessed_filings(db: Session, filing_year=None, filing_quarter=No
         process_filing(db, filing)
 
 def process_filing(db: Session, filing: ThirteenF, force=False):
+    """
+    The main processing pipeline for a single filing:
+    1. Fetch XML URLs and content
+    2. Parse Primary Doc (manager info)
+    3. Parse Info Table (stock holdings)
+    """
     if filing.xml_data_fetched_at is not None and not force:
         return
 

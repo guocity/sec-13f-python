@@ -2,7 +2,7 @@ import datetime
 from dateutil.relativedelta import relativedelta
 from sqlalchemy.orm import Session
 from models import init_db, SessionLocal, ThirteenF
-from thirteen_f import import_filings, process_unprocessed_filings
+from thirteen_f import import_filings, process_unprocessed_filings, client as sec_client
 
 DEFAULT_CIKS = [
     "0000102909",
@@ -12,8 +12,9 @@ DEFAULT_CIKS = [
 ]
 
 class MinimalDbSeeder:
-    def __init__(self, ciks=None, periods=None):
+    def __init__(self, ciks=None, periods=None, verbose=False):
         self.ciks = ciks if ciks is not None else DEFAULT_CIKS
+        self.verbose = verbose
 
         if periods is None:
             self.periods = []
@@ -27,6 +28,7 @@ class MinimalDbSeeder:
             self.periods = periods
 
     def seed_minimal_db(self):
+        sec_client.verbose = self.verbose
         init_db()
         db: Session = SessionLocal()
 
@@ -53,6 +55,7 @@ class MinimalDbSeeder:
             db.commit()
 
             print(f"{datetime.datetime.utcnow()}: done, minimal db now available")
+            print(f"Total SEC requests made: {sec_client.request_count}")
         except Exception as e:
             db.rollback()
             print(f"Error during seeding: {e}")
@@ -62,5 +65,5 @@ class MinimalDbSeeder:
 
 if __name__ == "__main__":
     # Example to just run it and test minimal execution.
-    seeder = MinimalDbSeeder(periods=[{"year": 2020, "quarter": 4}], ciks=["0001067983"])
+    seeder = MinimalDbSeeder(periods=[{"year": 2020, "quarter": 4}], ciks=["0001067983"], verbose=True)
     seeder.seed_minimal_db()

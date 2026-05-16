@@ -1,0 +1,96 @@
+import datetime
+import sys
+import re
+from sqlalchemy.orm import Session
+from models import SessionLocal, init_db
+from thirteen_f import import_filings, process_unprocessed_filings, client as sec_client
+
+def import_all(period=None, verbose=False):
+    """
+    Imports and processes SEC 13F filings for a specified period or all history.
+    
+    Args:
+        period (str): Optional. Format "YYYY" (e.g. 2026) or "YYYYQN" (e.g. 2026Q1).
+                     If None, imports everything from 2014 to present.
+        verbose (bool): If True, prints detailed request logs to the console.
+    """
+    sec_client.verbose = verbose
+    
+    # Initialize the database (creates tables if they don't exist)
+    init_db()
+    db: Session = SessionLocal()
+    
+    # Determine current date to avoid requesting future quarters
+    now = datetime.datetime.utcnow()
+    current_year = now.year
+    current_quarter = (now.month - 1) // 3 + 1
+    
+    # Default search range (SEC 13F XML data started in 2014)
+    start_year = 2014
+    end_year = current_year
+    start_q = 1
+    end_q = 4
+
+    # Parse the user-provided period string
+    if period:
+        # Check for specific quarter format: e.g. "2026Q1"
+        match_q = re.match(r"^(\d{4})Q([1-4])$", str(period).upper())
+        # Check for full year format: e.g. "2026"
+        match_y = re.match(r"^(\d{4})$", str(period))
+        
+        if match_q:
+            # Set bounds to a single specific quarter
+            start_year = end_year = int(match_q.group(1))
+            start_q = end_q = int(match_q.group(2))
+        elif match_y:
+            # Set bounds to a full year (all 4 quarters)
+            start_year = end_year = int(match_y.group(1))
+            start_q = 1
+            end_q = 4
+        else:
+            print(f"Invalid period format: {period}. Use YYYY (e.g. 2026) or YYYYQN (e.g. 2026Q1)")
+            return
+
+    try:
+        # Loop through each year in the range
+        for year in range(start_year, end_year + 1):
+            # Loop through each quarter (1-4)
+            for quarter in range(1, 5):
+                # Logic to skip quarters outside the requested bounds:
+                
+                # 1. Skip quarters before the start quarter in the first year
+                if year == start_year and quarter < start_q:
+                    continue
+                # 2. Skip quarters after the end quarter in the last year
+                if year == end_year and quarter > end_q:
+                    break
+                # 3. Safety check: Don't try to fetch data for the future
+                if year == current_year and quarter > current_quarter:
+                    break
+                
+                # Step 1: Download the SEC Master Index for this quarter.
+                # This file contains the names and CIKs of every manager who filed a 13F.
+                print(f"{datetime.datetime.utcnow()}: Importing 13Fs for {year} Q{quarter}...")
+                import_filings(db, filing_year=year, filing_quarter=quarter)
+                
+                # Step 2: Process the holdings for every manager found in the index.
+                # This downloads the actual XML data for each filing (Primary Doc and Info Table).
+                print(f"{datetime.datetime.utcnow()}: Processing holdings for {year} Q{quarter} (this may take a while)...")
+                process_unprocessed_filings(db, filing_year=year, filing_quarter=quarter)
+                
+                print(f"{datetime.datetime.utcnow()}: Finished {year} Q{quarter}")
+                
+        print(f"{datetime.datetime.utcnow()}: Import completed successfully.")
+        print(f"Total SEC requests made: {sec_client.request_count}")
+    except Exception as e:
+        print(f"Error during import: {e}")
+    finally:
+        db.close()
+
+if __name__ == "__main__":
+    # Support command line arguments: e.g. "python import_all_filings.py 2026Q1"
+    # If no argument is passed, sys.argv[1] is out of range, so we default to None.
+    target_period = sys.argv[1] if len(sys.argv) > 1 else None
+    
+    # Run the import with verbose logging enabled
+    import_all(period=target_period, verbose=True)

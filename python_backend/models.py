@@ -1,3 +1,10 @@
+"""
+Database models and schema definitions for SEC 13F filings.
+
+This module defines the SQLAlchemy models used to store and manage SEC 13F filing data,
+including individual holdings, aggregate holdings, and CUSIP-to-symbol mappings.
+It also provides utility functions for database initialization and session management.
+"""
 import os
 from datetime import datetime, date
 from sqlalchemy import create_engine, Column, Integer, BigInteger, String, Text, Numeric, Boolean, Date, DateTime, ForeignKey, Index
@@ -7,6 +14,10 @@ from sqlalchemy.types import JSON
 Base = declarative_base()
 
 class AggregateHolding(Base):
+    """
+    Represents aggregated holding data for a specific 13F filing.
+    Summarizes multiple holding entries for the same security (CUSIP) within a filing.
+    """
     __tablename__ = 'aggregate_holdings'
 
     id = Column(Integer, primary_key=True, autoincrement=True)
@@ -30,6 +41,10 @@ class AggregateHolding(Base):
     )
 
 class CusipSymbolMapping(Base):
+    """
+    Stores mappings between CUSIP identifiers and ticker symbols.
+    Helps resolve security identifiers to recognizable stock symbols and exchanges.
+    """
     __tablename__ = 'cusip_symbol_mappings'
 
     id = Column(Integer, primary_key=True, autoincrement=True)
@@ -41,6 +56,10 @@ class CusipSymbolMapping(Base):
     updated_at = Column(DateTime, nullable=False, default=datetime.utcnow, onupdate=datetime.utcnow)
 
 class Holding(Base):
+    """
+    Represents an individual holding entry from a 13F filing's Information Table.
+    Contains details such as share counts, values, and investment discretion.
+    """
     __tablename__ = 'holdings'
 
     id = Column(Integer, primary_key=True, autoincrement=True)
@@ -66,6 +85,10 @@ class Holding(Base):
     )
 
 class ThirteenF(Base):
+    """
+    Represents the metadata and header information for an SEC 13F filing.
+    Includes details about the filer (CIK, name), reporting period, and URLs to the original XML data.
+    """
     __tablename__ = 'thirteen_fs'
 
     id = Column(Integer, primary_key=True, autoincrement=True)
@@ -123,9 +146,16 @@ engine = create_engine(DATABASE_URL)
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 
 def init_db():
+    """
+    Initializes the database by creating all tables defined in the models.
+    """
     Base.metadata.create_all(bind=engine)
 
 def get_db():
+    """
+    Generator function to provide a database session.
+    Ensures the session is closed after use.
+    """
     db = SessionLocal()
     try:
         yield db
