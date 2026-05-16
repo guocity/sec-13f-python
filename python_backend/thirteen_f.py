@@ -94,7 +94,8 @@ def process_filing(db: Session, filing: ThirteenF, force=False):
         filing.xml_data_fetched_at = datetime.datetime.utcnow()
         db.commit()
     except Exception as e:
-        msg = f"\nSkipping filing {filing.external_id} ({filing.name}) due to error: {e}"
+        error_type = type(e).__name__
+        msg = f"\nSkipping filing {filing.external_id} ({filing.name}) due to {error_type}: {e}"
         tqdm.write(msg)
         db.rollback()
 

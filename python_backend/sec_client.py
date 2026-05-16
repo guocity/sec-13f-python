@@ -13,10 +13,12 @@ except ImportError:
 
 
 class RateLimited(Exception):
-    pass
+    def __str__(self):
+        return "SEC Rate Limit exceeded (429)"
 
 class XmlUrlsNotFound(Exception):
-    pass
+    def __str__(self):
+        return "No XML files found in the filing directory"
 
 class SecClient:
     """
@@ -308,14 +310,18 @@ class SecClient:
         return holdings
 
     def xml_urls(self, directory_url):
+        if not directory_url.endswith('/'):
+            directory_url += '/'
+            
         response = self.get(directory_url)
         soup = BeautifulSoup(response.content, 'html.parser')
 
         urls = []
-        for a in soup.select("#main-content a"):
+        # SEC index pages sometimes use different structures, so we look for all <a> tags
+        for a in soup.find_all("a"):
             href = a.get("href")
             if href and href.lower().endswith(".xml"):
-                urls.append(urljoin(self.BASE_URL, href))
+                urls.append(urljoin(directory_url, href))
 
         if not urls:
             raise XmlUrlsNotFound()
